@@ -1,0 +1,121 @@
+{
+  "checkpoint_date": "2026-01-14",
+  "project": {
+    "name": "SCP Linter",
+    "description": "Standalone Python CLI tool to lint AWS Service Control Policies for errors, warnings, and best practices",
+    "tagline": "Validate SCPs before they break your AWS accounts",
+    "version": "0.1.0",
+    "pypi_name": "scp-lint",
+    "github": "https://github.com/OnticX/scp-lint"
+  },
+  "rules": {
+    "ascii_only": "Always use ASCII-safe characters in code and output (no unicode symbols like checkmarks)",
+    "lint_after_code": "Always run Ruff and mypy after writing Python code"
+  },
+  "current_state": {
+    "branch": "main",
+    "test_count": 58,
+    "tests_passing": true,
+    "status": "Ready for PyPI release"
+  },
+  "structure": {
+    "cli": "cli.py",
+    "linter": "linter/scp_linter.py",
+    "linter_init": "linter/__init__.py",
+    "data": {
+      "iam_reference": "data/iam_reference.py",
+      "aws_iam_reference_json": "data/aws_iam_reference.json",
+      "init": "data/__init__.py"
+    },
+    "tests": "test_linter/test_scp_linter.py",
+    "config": {
+      "pyproject": "pyproject.toml",
+      "requirements": "requirements.txt",
+      "manifest": "MANIFEST.in",
+      "gitignore": ".gitignore"
+    },
+    "ci": ".github/workflows/lint.yml"
+  },
+  "cli_usage": {
+    "single_file": "python cli.py policy.json",
+    "directory": "python cli.py ./policies/",
+    "installed": "scp-lint policy.json"
+  },
+  "lint_rules": {
+    "errors": {
+      "E001": "File not found",
+      "E002": "Cannot read file",
+      "E003": "Invalid JSON syntax",
+      "E010": "Policy exceeds 5120 character limit",
+      "E020": "Missing Version field",
+      "E021": "Missing Statement field",
+      "E022": "Statement is not an object or array",
+      "E030": "Statement is not an object",
+      "E031": "Missing Effect field",
+      "E032": "Invalid Effect value",
+      "E033": "Missing Action or NotAction field",
+      "E034": "Principal/NotPrincipal not allowed in SCPs",
+      "E040": "Action must be string or array",
+      "E041": "Action array item is not a string",
+      "E050": "Condition block must be an object",
+      "E051": "Condition operator value must be an object",
+      "E052": "Unknown condition operator"
+    },
+    "warnings": {
+      "W010": "Policy is over 75% of size limit",
+      "W020": "Unusual Version value",
+      "W021": "Unknown top-level field",
+      "W030": "Empty statements array",
+      "W031": "More than 20 statements",
+      "W032": "Unknown statement field",
+      "W040": "Action missing service prefix",
+      "W041": "Unknown service prefix",
+      "W042": "Unknown action name (with suggestions)",
+      "W043": "Unknown condition key",
+      "W044": "Empty condition block",
+      "W045": "Empty condition operator block",
+      "W046": "Empty or null condition value",
+      "W050": "Blanket Deny * without conditions",
+      "W051": "Service-wide deny without conditions"
+    },
+    "info": {
+      "I030": "No Resource specified (defaults to *)",
+      "I031": "No Sid specified",
+      "I050": "Policy contains only Allow statements"
+    }
+  },
+  "iam_reference_data": {
+    "source": "iann0036/iam-dataset",
+    "stats": {
+      "services": 442,
+      "actions": 20291,
+      "resources": 2147,
+      "service_condition_keys": 1352,
+      "global_condition_keys": 3
+    }
+  },
+  "dependencies": {
+    "runtime": ["boto3>=1.34.0", "click>=8.1.0", "rich>=13.7.0", "python-dateutil>=2.8.0"],
+    "dev": ["pytest>=7.4.0", "pytest-mock>=3.11.0", "ruff>=0.1.0", "mypy>=1.0.0"]
+  },
+  "run_commands": {
+    "tests": "pytest",
+    "cli": "python cli.py .",
+    "install_dev": "pip install -e \".[dev]\"",
+    "build": "python -m build",
+    "publish_test": "twine upload --repository testpypi dist/*",
+    "publish": "twine upload dist/*"
+  },
+  "github_actions": {
+    "trigger": "push/PR to main",
+    "python_version": "3.11",
+    "steps": ["checkout", "setup python", "install deps", "run pytest", "run scp-lint on all JSON files"]
+  },
+  "future_enhancements": [
+    "Resource ARN format validation",
+    "Duplicate Sid detection",
+    "Duplicate statement detection",
+    "NotAction/NotResource warnings",
+    "IP address format validation for IpAddress operator"
+  ]
+}

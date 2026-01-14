@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Block",  // Invalid effect, should be "Allow" or "Deny"
+      "Action": "s3:GetObjet",  // Typo, should be "s3:GetObject"
+      "Resource": "*",
+      "Condition": {
+        "StringEquls": {  // Typo, should be "StringEquals"
+          "aws:NotARealKey": "value"  // Invalid condition key
+        }
+      },
+      "Principal": "*"  // SCPs do not support Principal
+    }
+  ],
+  "UnknownField": "unexpected"  // Unknown top-level field
+}
