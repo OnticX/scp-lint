@@ -10,11 +10,23 @@ import json
 from linter.scp_linter import SCPLinter
 
 def lint_file(path):
+    # Check if file is a valid SCP (has 'Version' and 'Statement')
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        if not (isinstance(data, dict) and 'Version' in data and 'Statement' in data):
+            print(f"\nSkipping: {path} (not an SCP policy)")
+            return None
+    except Exception as e:
+        print(f"\nSkipping: {path} (invalid JSON: {e})")
+        return None
     linter = SCPLinter()
-    report = linter.lint_file(path)
+    report = linter.lint(data)
     return report
 
 def print_report(report, file_path):
+    if report is None:
+        return
     print(f"\nLinting: {file_path}")
     print(f"  - Is valid: {report.is_valid}")
     if report.results:
