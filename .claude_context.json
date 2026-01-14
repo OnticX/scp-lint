@@ -1,0 +1,190 @@
+{
+  "checkpoint_date": "2026-01-12",
+  "project": {
+    "name": "SCP Impact Simulator",
+    "description": "Python CLI tool to simulate AWS SCP impact against CloudTrail logs before production deployment",
+    "tagline": "Apply SCPs with 0% chance of breaking existing workflows"
+  },
+  "rules": {
+    "ascii_only": "Always use ASCII-safe characters in code and output (no unicode symbols like checkmarks)",
+    "lint_after_code": "Always run Ruff and mypy after writing Python code"
+  },
+  "current_state": {
+    "branch": "devops",
+    "base_branch": "main",
+    "test_count": 254,
+    "tests_passing": true,
+    "recent_feature": "Condition evaluation fully implemented"
+  },
+  "structure": {
+    "src": "src/scp_simulator/",
+    "cli": "src/scp_simulator/cli/commands.py",
+    "parsers": "src/scp_simulator/parsers/scp_parser.py",
+    "ingest": "src/scp_simulator/ingest/file_ingester.py",
+    "engine": {
+      "scp_engine": "src/scp_simulator/engine/scp_engine.py",
+      "matcher": "src/scp_simulator/engine/matcher.py",
+      "policy_analyzer": "src/scp_simulator/engine/policy_analyzer.py",
+      "condition_evaluator": "src/scp_simulator/engine/condition_evaluator.py"
+    },
+    "data": {
+      "fixture_generator": "src/scp_simulator/data/fixture_generator.py",
+      "iam_reference": "src/scp_simulator/data/iam_reference.py",
+      "aws_iam_reference_json": "src/scp_simulator/data/aws_iam_reference.json"
+    },
+    "linter": "src/scp_simulator/linter/scp_linter.py",
+    "models": {
+      "scp": "src/scp_simulator/models/scp.py",
+      "cloudtrail": "src/scp_simulator/models/cloudtrail.py",
+      "report": "src/scp_simulator/models/report.py"
+    },
+    "tests": "tests/",
+    "fixtures": "tests/fixtures/"
+  },
+  "cli_commands": {
+    "validate": {"status": "implemented", "purpose": "Validate SCP JSON syntax"},
+    "analyze": {"status": "implemented", "purpose": "Analyze SCP impact against CloudTrail logs"},
+    "lint": {"status": "implemented", "purpose": "Lint SCP for errors/warnings/best practices"},
+    "compare": {"status": "implemented", "purpose": "Compare SCPs for conflicts/shadows/duplicates"}
+  },
+  "models": {
+    "SCPStatement": {
+      "file": "src/scp_simulator/models/scp.py",
+      "fields": ["effect", "actions", "resources", "sid", "conditions"]
+    },
+    "SCPPolicy": {
+      "file": "src/scp_simulator/models/scp.py",
+      "fields": ["version", "statements", "policy_name"]
+    },
+    "CloudTrailEvent": {
+      "file": "src/scp_simulator/models/cloudtrail.py",
+      "fields": ["event_time", "event_name", "event_source", "user_identity", "aws_region", "source_ip_address", "user_agent"],
+      "properties": ["iam_action", "principal_arn", "principal_type", "account_id"]
+    },
+    "EvaluationContext": {
+      "file": "src/scp_simulator/models/report.py",
+      "fields": ["event", "region", "account_id", "source_ip", "user_agent", "request_time", "principal_arn", "principal_type"]
+    },
+    "ImpactReport": {
+      "file": "src/scp_simulator/models/report.py",
+      "fields": ["total_events", "denied_count", "allowed_count", "denied_events", "statistics"],
+      "properties": ["denial_rate"]
+    },
+    "ImpactStatistics": {
+      "file": "src/scp_simulator/models/report.py",
+      "fields": ["denied_by_service", "top_denied_actions", "affected_principals", "denials_by_statement"]
+    }
+  },
+  "condition_evaluator": {
+    "file": "src/scp_simulator/engine/condition_evaluator.py",
+    "test_file": "tests/test_engine/test_condition_evaluator.py",
+    "test_count": 75,
+    "status": "COMPLETE",
+    "supported_operators": [
+      "StringEquals", "StringNotEquals", "StringEqualsIgnoreCase", "StringNotEqualsIgnoreCase",
+      "StringLike", "StringNotLike",
+      "ArnEquals", "ArnNotEquals", "ArnLike", "ArnNotLike",
+      "IpAddress", "NotIpAddress",
+      "DateEquals", "DateNotEquals", "DateLessThan", "DateLessThanEquals", "DateGreaterThan", "DateGreaterThanEquals",
+      "Bool", "Null"
+    ],
+    "modifiers": ["IfExists suffix", "ForAllValues: prefix", "ForAnyValue: prefix"],
+    "context_key_mapping": {
+      "aws:SourceIp": "source_ip",
+      "aws:PrincipalArn": "principal_arn",
+      "aws:RequestedRegion": "region",
+      "aws:CurrentTime": "request_time",
+      "aws:PrincipalAccount": "account_id",
+      "aws:PrincipalType": "principal_type",
+      "aws:UserAgent": "user_agent"
+    },
+    "behavior_on_unknown_keys": "Returns True (conservative match), tracks in unevaluable_keys"
+  },
+  "todos": {
+    "phase2": [
+      "Terraform SCP format support",
+      "S3 CloudTrail ingestion",
+      "CloudTrail API support",
+      "Resource ARN matching in SCP evaluation"
+    ]
+  },
+  "policy_analyzer_issue_types": {
+    "W060": "duplicate_sid",
+    "W061": "duplicate_statement",
+    "W062": "contradiction",
+    "W063": "shadow",
+    "W064": "unreachable_allow"
+  },
+  "linter_error_codes": {
+    "E001-E034": "Errors (JSON syntax, structure)",
+    "W010-W051": "Warnings (size limits, best practices)",
+    "I030-I050": "Info (suggestions)"
+  },
+  "run_commands": {
+    "tests": "pytest",
+    "cli": "python -m scp_simulator",
+    "demo": "python demo.py",
+    "demo_scenarios": "python demo_scenarios.py",
+    "lint_code": "ruff check . && mypy src/"
+  },
+  "completed_features": [
+    "SCP parsing and validation",
+    "CloudTrail log ingestion (JSON, gzip)",
+    "SCP evaluation engine (Deny/Allow/Implicit Deny)",
+    "Action wildcard matching",
+    "Condition evaluation (18 operators + modifiers)",
+    "Impact analysis with statistics",
+    "Console reporter (Rich)",
+    "JSON reporter",
+    "SCP linter (35+ rules)",
+    "Policy comparison (conflicts/shadows/duplicates)",
+    "CLI commands (validate, analyze, lint, compare)"
+  ],
+  "iam_reference_data": {
+    "source": "iann0036/iam-dataset",
+    "conversion_script": "scripts/convert_iam_definition.py",
+    "stats": {
+      "services": 442,
+      "actions": 20291,
+      "resources": 2147,
+      "service_condition_keys": 1352,
+      "global_condition_keys": 3
+    },
+    "update_instructions": "Download fresh iam_definition.json from https://github.com/iann0036/iam-dataset and run: python scripts/convert_iam_definition.py"
+  },
+  "generated_test_cases": {
+    "file": "tests/test_engine/test_generated_cases.py",
+    "description": "Comprehensive test cases generated using IAM reference data",
+    "test_count": 131,
+    "test_classes": {
+      "TestActionMatchingFromIAMReference": "Tests action matching against real IAM actions from all services",
+      "TestConditionEvaluatorComprehensive": "Tests all condition operators with parametrized values",
+      "TestSCPEngineRealWorldScenarios": "Tests common SCP patterns from the original class",
+      "TestEdgeCasesFromIAMReference": "Tests edge cases like hyphens, numbers, long names in services/actions",
+      "TestPerformanceWithLargeActionSets": "Tests performance with large action sets",
+      "TestConditionOperatorEdgeCases": "Edge cases for all condition operators (string, ARN, IP, date, null, modifiers)",
+      "TestPropertyBasedActionMatching": "Property-based tests for action matching (reflexive, case-insensitive, wildcards)",
+      "TestRealWorldSCPScenarios": "Real-world SCP patterns (root denial, region restriction, MFA, billing guardrails, etc.)"
+    },
+    "key_patterns_tested": [
+      "Deny root user actions",
+      "Prevent leaving organization",
+      "Region restrictions with service exceptions",
+      "MFA requirements for sensitive actions",
+      "Deny public S3 access",
+      "VPC restriction patterns",
+      "Multi-policy evaluation (OU hierarchy)",
+      "Service control by access level",
+      "Billing access guardrails",
+      "Encryption enforcement",
+      "Combined IP and principal restrictions (AND logic)"
+    ],
+    "known_limitations": {
+      "date_operators": "Skipped due to timezone-aware vs naive datetime comparison issue in condition evaluator",
+      "not_actions": "SCPStatement model doesn't support NotAction field"
+    },
+    "notes": {
+      "principal_arn_format": "aws:PrincipalArn resolves to STS assumed-role ARN format (arn:aws:sts::*:assumed-role/RoleName/*), not IAM role ARN format"
+    }
+  }
+}
