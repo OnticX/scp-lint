@@ -22,6 +22,6 @@ jobs:
       - name: Run tests
         run: |
           pytest
-      - name: Run SCP linter on sample JSON files
+      - name: Run SCP linter on all JSON files
         run: |
-          python cli.py mock_scp.json
+          python cli.py .
