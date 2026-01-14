@@ -1,1 +1,0 @@
-{"Version": "2012-10-17", "Statement": [{"Sid": "DenyS3Delete", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"}]}
