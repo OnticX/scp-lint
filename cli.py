@@ -14,11 +14,11 @@ def lint_file(path):
     try:
         with open(path, 'r') as f:
             data = json.load(f)
-        if not (isinstance(data, dict) and 'Version' in data and 'Statement' in data):
-            print(f"\nSkipping: {path} (not an SCP policy)")
-            return None
     except Exception as e:
-        print(f"\nSkipping: {path} (invalid JSON: {e})")
+        print(f"\nFAILED: {path} (invalid JSON: {e})")
+        return False
+    if not (isinstance(data, dict) and 'Version' in data and 'Statement' in data):
+        print(f"\nSkipping: {path} (not an SCP policy)")
         return None
     linter = SCPLinter()
     report = linter.lint(data)
@@ -26,6 +26,9 @@ def lint_file(path):
 
 def print_report(report, file_path):
     if report is None:
+        return False
+    if report is False:
+        # This means JSON was invalid
         return False
     print(f"\nLinting: {file_path}")
     print(f"  - Is valid: {report.is_valid}")
