@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from scp_simulator.linter import LintResult, LintSeverity, SCPLinter
+from linter import LintResult, LintSeverity, SCPLinter
 
 
 class TestSCPLinterBasic:
