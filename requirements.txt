@@ -1,0 +1,9 @@
+# Requirements for SCP Linter
+# All dependencies needed to run the linter and CLI
+
+# If you use only the Python standard library, you can leave this empty.
+# If you use any third-party packages, list them below.
+
+# Example (uncomment if needed):
+# boto3
+# requests
