@@ -26,7 +26,7 @@ def lint_file(path):
 
 def print_report(report, file_path):
     if report is None:
-        return
+        return False
     print(f"\nLinting: {file_path}")
     print(f"  - Is valid: {report.is_valid}")
     if report.results:
@@ -35,22 +35,30 @@ def print_report(report, file_path):
             print(f"    * [{result.severity.value.upper()}] {result.code}\n      Message: {result.message}\n      Location: {result.location}\n      Suggestion: {result.suggestion}\n")
     else:
         print("  - No issues found.")
+    return report.is_valid
 
 def main():
     if len(sys.argv) != 2:
         print("Usage: python cli.py <policy_file.json> or <directory>")
         sys.exit(1)
     target = sys.argv[1]
+    all_valid = True
     if os.path.isdir(target):
         for root, _, files in os.walk(target):
             for fname in files:
                 if fname.endswith('.json'):
                     fpath = os.path.join(root, fname)
                     report = lint_file(fpath)
-                    print_report(report, fpath)
+                    valid = print_report(report, fpath)
+                    if valid is False:
+                        all_valid = False
     else:
         report = lint_file(target)
-        print_report(report, target)
+        valid = print_report(report, target)
+        if valid is False:
+            all_valid = False
+    if not all_valid:
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
