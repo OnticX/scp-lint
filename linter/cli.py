@@ -3,12 +3,53 @@ CLI for SCP Linter
 Usage:
   scp-lint <policy_file.json>
   scp-lint <directory_with_json_files>
+  scp-lint --version
+  scp-lint --help
 """
 import json
 import os
 import sys
+from importlib.metadata import version, PackageNotFoundError
 
 from linter.scp_linter import SCPLinter
+
+
+def get_version():
+    """Get the package version."""
+    try:
+        return version("scp-lint")
+    except PackageNotFoundError:
+        return "dev"
+
+
+def print_help():
+    """Print help message."""
+    help_text = f"""
+scp-lint {get_version()} - AWS Service Control Policy Linter
+
+USAGE:
+  scp-lint <policy_file.json>      Lint a single SCP policy file
+  scp-lint <directory>             Lint all JSON files in a directory (recursive)
+  scp-lint --version, -V           Show version number
+  scp-lint --help, -h              Show this help message
+
+EXAMPLES:
+  scp-lint policy.json             Lint a single policy file
+  scp-lint ./policies/             Lint all policies in a directory
+  scp-lint .                       Lint all JSON files in current directory
+
+OUTPUT:
+  - PASSED: Policy is valid with no issues
+  - PASSED with warnings: Policy is valid but has warnings/info messages
+  - FAILED: Policy has errors that should be fixed
+
+EXIT CODES:
+  0  All policies passed validation
+  1  One or more policies failed or had invalid JSON
+
+For more information, visit: https://github.com/tf-aws-lz/scp-lint
+"""
+    print(help_text)
 
 
 def lint_file(path):
@@ -91,8 +132,17 @@ def print_report(report, file_path):
 
 def main():
     """Main entry point for the CLI."""
+    if len(sys.argv) == 2 and sys.argv[1] in ("--version", "-V"):
+        print(f"scp-lint {get_version()}")
+        sys.exit(0)
+
+    if len(sys.argv) == 2 and sys.argv[1] in ("--help", "-h"):
+        print_help()
+        sys.exit(0)
+
     if len(sys.argv) != 2:
         print("Usage: scp-lint <policy_file.json> or <directory>")
+        print("       scp-lint --help for more information")
         sys.exit(1)
     target = sys.argv[1]
 
