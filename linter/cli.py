@@ -9,7 +9,7 @@ Usage:
 import json
 import os
 import sys
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 from linter.scp_linter import SCPLinter
 
@@ -30,7 +30,7 @@ scp-lint {get_version()} - AWS Service Control Policy Linter
 USAGE:
   scp-lint <policy_file.json>      Lint a single SCP policy file
   scp-lint <directory>             Lint all JSON files in a directory (recursive)
-  scp-lint --version, -V           Show version number
+  scp-lint --version, -v, -V       Show version number
   scp-lint --help, -h              Show this help message
 
 EXAMPLES:
@@ -132,7 +132,7 @@ def print_report(report, file_path):
 
 def main():
     """Main entry point for the CLI."""
-    if len(sys.argv) == 2 and sys.argv[1] in ("--version", "-V"):
+    if len(sys.argv) == 2 and sys.argv[1] in ("--version", "-V", "-v"):
         print(f"scp-lint {get_version()}")
         sys.exit(0)
 
