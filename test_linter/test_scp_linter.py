@@ -958,3 +958,665 @@ class TestConditionSyntaxValidation:
         assert len(e052) == 1
         assert e052[0].suggestion is not None
         assert "Did you mean" in e052[0].suggestion
+
+
+# =============================================================================
+# NEW v0.2.0: Tests for new validation features
+# =============================================================================
+
+
+class TestNotActionNotResourceWarnings:
+    """Tests for W090/W091: NotAction and NotResource warnings."""
+
+    def test_notaction_produces_w090_info(self):
+        """NotAction should produce W090 info."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Test", "Effect": "Deny", "NotAction": "iam:*", "Resource": "*"}
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W090" for r in report.infos)
+
+    def test_action_does_not_produce_w090(self):
+        """Regular Action should not produce W090."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Test", "Effect": "Deny", "Action": "s3:*", "Resource": "*"}
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W090" for r in report.infos)
+
+    def test_notresource_produces_w091_info(self):
+        """NotResource should produce W091 info."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Test", "Effect": "Deny", "Action": "*", "NotResource": "arn:aws:s3:::*"}
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W091" for r in report.infos)
+
+    def test_resource_does_not_produce_w091(self):
+        """Regular Resource should not produce W091."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Test", "Effect": "Deny", "Action": "*", "Resource": "*"}
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W091" for r in report.infos)
+
+    def test_both_notaction_and_notresource(self):
+        """Both NotAction and NotResource should produce both warnings."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Test", "Effect": "Deny", "NotAction": "iam:*", "NotResource": "*"}
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W090" for r in report.infos)
+        assert any(r.code == "W091" for r in report.infos)
+
+
+class TestDuplicateSidDetection:
+    """Tests for W060: Duplicate Sid detection."""
+
+    def test_duplicate_sid_produces_w060(self):
+        """Duplicate Sids should produce W060 warning."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "DenyS3", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+                {"Sid": "DenyS3", "Effect": "Deny", "Action": "s3:DeleteObject", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W060" for r in report.warnings)
+        w060 = [r for r in report.warnings if r.code == "W060"][0]
+        assert "DenyS3" in w060.message
+
+    def test_unique_sids_no_warning(self):
+        """Unique Sids should not produce W060."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "DenyS3Delete", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+                {"Sid": "DenyS3Put", "Effect": "Deny", "Action": "s3:PutObject", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W060" for r in report.warnings)
+
+    def test_no_sids_no_warning(self):
+        """Statements without Sids should not produce W060."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+                {"Effect": "Deny", "Action": "s3:DeleteObject", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W060" for r in report.warnings)
+
+    def test_three_duplicate_sids(self):
+        """Three statements with same Sid should report all three."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Same", "Effect": "Deny", "Action": "s3:*", "Resource": "*"},
+                {"Sid": "Same", "Effect": "Deny", "Action": "ec2:*", "Resource": "*"},
+                {"Sid": "Same", "Effect": "Deny", "Action": "iam:*", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        w060_warnings = [r for r in report.warnings if r.code == "W060"]
+        assert len(w060_warnings) == 1
+        assert "Statement[0]" in w060_warnings[0].location
+        assert "Statement[1]" in w060_warnings[0].location
+        assert "Statement[2]" in w060_warnings[0].location
+
+
+class TestDuplicateStatementDetection:
+    """Tests for W061: Duplicate statement detection."""
+
+    def test_duplicate_statement_produces_w061(self):
+        """Identical statements should produce W061 warning."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "First", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+                {"Sid": "Second", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W061" for r in report.warnings)
+
+    def test_different_statements_no_warning(self):
+        """Different statements should not produce W061."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "First", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+                {"Sid": "Second", "Effect": "Deny", "Action": "s3:DeleteObject", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W061" for r in report.warnings)
+
+    def test_same_sid_different_content_no_w061(self):
+        """Same Sid but different content should not produce W061."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "Same", "Effect": "Deny", "Action": "s3:DeleteBucket", "Resource": "*"},
+                {"Sid": "Same", "Effect": "Allow", "Action": "s3:DeleteBucket", "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W060" for r in report.warnings)
+        assert not any(r.code == "W061" for r in report.warnings)
+
+    def test_identical_with_conditions(self):
+        """Identical statements with same conditions should produce W061."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "First",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-1"}},
+                },
+                {
+                    "Sid": "Second",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-1"}},
+                },
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W061" for r in report.warnings)
+
+    def test_different_conditions_no_w061(self):
+        """Statements with different conditions should not produce W061."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "First",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-1"}},
+                },
+                {
+                    "Sid": "Second",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"aws:RequestedRegion": "us-west-2"}},
+                },
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W061" for r in report.warnings)
+
+    def test_action_array_order_independent(self):
+        """Action arrays in different order should still be detected as duplicates."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {"Sid": "First", "Effect": "Deny", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": "*"},
+                {"Sid": "Second", "Effect": "Deny", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": "*"},
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W061" for r in report.warnings)
+
+
+class TestIPAddressValidation:
+    """Tests for W070: IP address/CIDR format validation."""
+
+    def test_valid_ipv4_cidr_no_warning(self):
+        """Valid IPv4 CIDR should not produce W070."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"IpAddress": {"aws:SourceIp": "192.0.2.0/24"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W070" for r in report.warnings)
+
+    def test_valid_ipv4_address_no_warning(self):
+        """Valid IPv4 address should not produce W070."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"IpAddress": {"aws:SourceIp": "192.0.2.1"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W070" for r in report.warnings)
+
+    def test_valid_ipv6_cidr_no_warning(self):
+        """Valid IPv6 CIDR should not produce W070."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"IpAddress": {"aws:SourceIp": "2001:db8::/32"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W070" for r in report.warnings)
+
+    def test_invalid_ip_produces_w070(self):
+        """Invalid IP address should produce W070."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"IpAddress": {"aws:SourceIp": "999.999.999.999"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W070" for r in report.warnings)
+
+    def test_invalid_cidr_produces_w070(self):
+        """Invalid CIDR should produce W070."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"IpAddress": {"aws:SourceIp": "192.0.2.0/99"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W070" for r in report.warnings)
+
+    def test_notipaddress_also_validated(self):
+        """NotIpAddress operator should also validate IP format."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"NotIpAddress": {"aws:SourceIp": "invalid-ip"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W070" for r in report.warnings)
+
+    def test_array_of_ips_all_validated(self):
+        """Array of IPs should all be validated."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"IpAddress": {"aws:SourceIp": ["192.0.2.0/24", "invalid-ip"]}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        w070_warnings = [r for r in report.warnings if r.code == "W070"]
+        assert len(w070_warnings) == 1
+
+    def test_stringequals_ip_not_validated(self):
+        """StringEquals operator should not validate IP format."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"aws:SourceIp": "not-an-ip"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W070" for r in report.warnings)
+
+
+class TestDateFormatValidation:
+    """Tests for W071: Date format validation."""
+
+    def test_valid_iso8601_date_no_warning(self):
+        """Valid ISO 8601 date should not produce W071."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"DateGreaterThan": {"aws:CurrentTime": "2023-01-15T00:00:00Z"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W071" for r in report.warnings)
+
+    def test_valid_date_without_time_no_warning(self):
+        """Valid date without time should not produce W071."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"DateEquals": {"aws:CurrentTime": "2023-01-15"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W071" for r in report.warnings)
+
+    def test_invalid_date_produces_w071(self):
+        """Invalid date format should produce W071."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"DateEquals": {"aws:CurrentTime": "not-a-date"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W071" for r in report.warnings)
+
+    def test_all_date_operators_validated(self):
+        """All Date operators should validate date format."""
+        date_operators = [
+            "DateEquals",
+            "DateNotEquals",
+            "DateLessThan",
+            "DateLessThanEquals",
+            "DateGreaterThan",
+            "DateGreaterThanEquals",
+        ]
+        for op in date_operators:
+            policy = {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "Test",
+                        "Effect": "Deny",
+                        "Action": "*",
+                        "Resource": "*",
+                        "Condition": {op: {"aws:CurrentTime": "invalid"}},
+                    }
+                ],
+            }
+            linter = SCPLinter()
+            report = linter.lint(policy)
+            assert any(r.code == "W071" for r in report.warnings), f"Expected W071 for {op}"
+
+    def test_stringequals_date_not_validated(self):
+        """StringEquals operator should not validate date format."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"StringEquals": {"aws:CurrentTime": "not-a-date"}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W071" for r in report.warnings)
+
+    def test_date_array_all_validated(self):
+        """Array of dates should all be validated."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "*",
+                    "Resource": "*",
+                    "Condition": {"DateEquals": {"aws:CurrentTime": ["2023-01-15", "invalid"]}},
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        w071_warnings = [r for r in report.warnings if r.code == "W071"]
+        assert len(w071_warnings) == 1
+
+
+class TestResourceARNValidation:
+    """Tests for W080: Resource ARN format validation."""
+
+    def test_wildcard_resource_no_warning(self):
+        """Resource '*' should not produce W080."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [{"Sid": "Test", "Effect": "Deny", "Action": "s3:*", "Resource": "*"}],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W080" for r in report.warnings)
+
+    def test_valid_arn_no_warning(self):
+        """Valid ARN should not produce W080."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": "arn:aws:s3:::my-bucket/*",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W080" for r in report.warnings)
+
+    def test_valid_arn_with_wildcards_no_warning(self):
+        """ARN with wildcards should not produce W080."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": "arn:aws:s3:::*",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W080" for r in report.warnings)
+
+    def test_invalid_arn_format_produces_w080(self):
+        """Invalid ARN format should produce W080."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": "arn:aws:s3",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W080" for r in report.warnings)
+
+    def test_non_arn_resource_produces_w080(self):
+        """Non-ARN resource (not wildcard) should produce W080."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": "my-bucket",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W080" for r in report.warnings)
+
+    def test_invalid_partition_produces_w080(self):
+        """ARN with invalid partition should produce W080."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": "arn:invalid:s3:::bucket",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W080" for r in report.warnings)
+
+    def test_aws_cn_partition_valid(self):
+        """ARN with aws-cn partition should be valid."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": "arn:aws-cn:s3:::bucket",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert not any(r.code == "W080" for r in report.warnings)
+
+    def test_notresource_also_validated(self):
+        """NotResource should also be validated for ARN format."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "NotResource": "invalid-resource",
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        assert any(r.code == "W080" for r in report.warnings)
+
+    def test_array_of_resources_all_validated(self):
+        """Array of resources should all be validated."""
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Sid": "Test",
+                    "Effect": "Deny",
+                    "Action": "s3:*",
+                    "Resource": ["arn:aws:s3:::bucket", "invalid"],
+                }
+            ],
+        }
+        linter = SCPLinter()
+        report = linter.lint(policy)
+        w080_warnings = [r for r in report.warnings if r.code == "W080"]
+        assert len(w080_warnings) == 1

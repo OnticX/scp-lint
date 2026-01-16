@@ -38,10 +38,13 @@ File: ./my-scp.json
 Status: PASSED with warnings
 ============================================================
 
-  WARNINGS (1):
+  WARNINGS (2):
     [W042] Unknown action: 's3:GetObjet'
            Location: Statement[0].Action[0]
            Suggestion: Did you mean: s3:GetObject?
+    [W070] Invalid IP address or CIDR format: '999.999.999.999'
+           Location: Statement[1].Condition.IpAddress.aws:SourceIp
+           Suggestion: Use valid IPv4 (192.0.2.0/24) or IPv6 (2001:db8::/32) format
 
   INFO (1):
     [I031] Statement has no Sid (identifier)
@@ -67,6 +70,10 @@ SUMMARY
 - **Condition Block Syntax**: Validates operator structure, detects unknown operators, and flags empty conditions
 - **Condition Key Validation**: Verifies keys like `aws:SourceIp` exist, supports tag-based keys such as `aws:RequestTag/*`
 - **Best Practices**: Warns on blanket denies without conditions, service-wide denies, and Allow-only SCPs
+- **Duplicate Detection**: Identifies duplicate Sids and duplicate statements across your policy
+- **IP Address Validation**: Validates IPv4/IPv6 addresses and CIDR notation in `IpAddress`/`NotIpAddress` conditions
+- **Date Format Validation**: Validates date strings in `DateEquals`, `DateLessThan`, and other date condition operators
+- **ARN Format Validation**: Validates Resource ARN structure and partition values
 
 ## Lint Rules
 
@@ -111,6 +118,11 @@ SUMMARY
 | W046 | Empty or null condition value |
 | W050 | Blanket Deny * without conditions |
 | W051 | Service-wide deny without conditions |
+| W060 | Duplicate Sid found in multiple statements |
+| W061 | Duplicate statements (identical Effect, Action, Resource, Condition) |
+| W070 | Invalid IP address or CIDR format |
+| W071 | Invalid date format |
+| W080 | Invalid ARN format |
 
 ### Info (I-codes) - Best practice suggestions
 
@@ -119,6 +131,8 @@ SUMMARY
 | I030 | No Resource specified (defaults to *) |
 | I031 | No Sid specified |
 | I050 | Policy contains only Allow statements |
+| W090 | Statement uses NotAction (inverse logic) |
+| W091 | Statement uses NotResource (inverse logic) |
 
 ## GitHub Actions Integration
 

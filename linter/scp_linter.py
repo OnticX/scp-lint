@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+from dateutil.parser import ParserError  # type: ignore[import-untyped]
+from dateutil.parser import parse as parse_date  # type: ignore[import-untyped]
 
 from data.iam_reference import AWSIAMReference, get_iam_reference
 
@@ -342,6 +346,68 @@ class SCPLinter:
         for i, stmt in enumerate(statements):
             self._validate_statement(stmt, i)
 
+        # W060: Duplicate Sid detection
+        sids_seen: dict[str, list[int]] = {}
+        for i, stmt in enumerate(statements):
+            if isinstance(stmt, dict) and "Sid" in stmt:
+                sid = stmt["Sid"]
+                if sid not in sids_seen:
+                    sids_seen[sid] = []
+                sids_seen[sid].append(i)
+
+        for sid, indices in sids_seen.items():
+            if len(indices) > 1:
+                locations = ", ".join(f"Statement[{i}]" for i in indices)
+                self.report.add(
+                    LintResult(
+                        severity=LintSeverity.WARNING,
+                        code="W060",
+                        message=f"Duplicate Sid '{sid}' found in multiple statements",
+                        location=locations,
+                        suggestion="Each statement should have a unique Sid for clarity",
+                    )
+                )
+
+        # W061: Duplicate statement detection
+        stmt_signatures: dict[tuple, list[int]] = {}
+        for i, stmt in enumerate(statements):
+            if isinstance(stmt, dict):
+                sig = self._normalize_statement_for_comparison(stmt)
+                if sig not in stmt_signatures:
+                    stmt_signatures[sig] = []
+                stmt_signatures[sig].append(i)
+
+        for _sig, indices in stmt_signatures.items():
+            if len(indices) > 1:
+                locations = ", ".join(f"Statement[{i}]" for i in indices)
+                self.report.add(
+                    LintResult(
+                        severity=LintSeverity.WARNING,
+                        code="W061",
+                        message="Duplicate statements found (identical Effect, Action, Resource, Condition)",
+                        location=locations,
+                        suggestion="Remove duplicate statements to improve policy clarity",
+                    )
+                )
+
+    def _normalize_statement_for_comparison(self, stmt: dict) -> tuple:
+        """Normalize a statement for comparison, excluding Sid."""
+
+        def normalize_value(val: Any) -> Any:
+            if isinstance(val, list):
+                return tuple(sorted(str(v) for v in val))
+            elif isinstance(val, dict):
+                return tuple(sorted((k, normalize_value(v)) for k, v in val.items()))
+            else:
+                return str(val)
+
+        compare_fields = ["Effect", "Action", "NotAction", "Resource", "NotResource", "Condition"]
+        normalized: list[tuple[str, Any]] = []
+        for fld in compare_fields:
+            if fld in stmt:
+                normalized.append((fld, normalize_value(stmt[fld])))
+        return tuple(normalized)
+
     def _validate_statement(self, stmt: dict, index: int) -> None:
         """Validate a single statement."""
         loc_prefix = f"Statement[{index}]"
@@ -403,6 +469,36 @@ class SCPLinter:
                     message="No Resource specified, defaults to '*'",
                     location=loc_prefix,
                     suggestion='Explicitly add "Resource": "*" for clarity',
+                )
+            )
+
+        # Validate Resource ARN format (W080)
+        if "Resource" in stmt:
+            self._validate_resources(stmt["Resource"], f"{loc_prefix}.Resource")
+        elif "NotResource" in stmt:
+            self._validate_resources(stmt["NotResource"], f"{loc_prefix}.NotResource")
+
+        # W090: NotAction warning (inverse logic)
+        if "NotAction" in stmt:
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.INFO,
+                    code="W090",
+                    message="Statement uses NotAction (inverse logic)",
+                    location=f"{loc_prefix}.NotAction",
+                    suggestion="NotAction can be error-prone; consider using Action with explicit list",
+                )
+            )
+
+        # W091: NotResource warning (inverse logic)
+        if "NotResource" in stmt:
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.INFO,
+                    code="W091",
+                    message="Statement uses NotResource (inverse logic)",
+                    location=f"{loc_prefix}.NotResource",
+                    suggestion="NotResource can be error-prone; consider using Resource with explicit ARNs",
                 )
             )
 
@@ -922,6 +1018,14 @@ class SCPLinter:
                 # Validate condition key exists
                 self._validate_condition_key(cond_key, key_location)
 
+                # W070: IP address format validation for IpAddress/NotIpAddress operators
+                if base_operator in ("IpAddress", "NotIpAddress"):
+                    self._validate_ip_address_format(cond_values, key_location)
+
+                # W071: Date format validation for Date* operators
+                if base_operator.startswith("Date"):
+                    self._validate_date_format(cond_values, key_location)
+
                 # Validate condition values are not empty
                 if cond_values is None:
                     self.report.add(
@@ -976,3 +1080,165 @@ class SCPLinter:
         if candidates:
             return f"Did you mean: {', '.join(candidates[:3])}?"
         return None
+
+    # =========================================================================
+    # NEW v0.2.0: IP address, date, and ARN validation
+    # =========================================================================
+
+    def _validate_ip_address_format(self, value: Any, location: str) -> None:
+        """
+        Validate IP address or CIDR format.
+
+        Error codes:
+            W070: Invalid IP address or CIDR format
+        """
+        if isinstance(value, list):
+            for i, v in enumerate(value):
+                self._validate_ip_address_format(v, f"{location}[{i}]")
+            return
+
+        if not isinstance(value, str):
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.WARNING,
+                    code="W070",
+                    message=f"IP address value must be a string, got {type(value).__name__}",
+                    location=location,
+                    suggestion="Use string format like '192.0.2.0/24' or '192.0.2.1'",
+                )
+            )
+            return
+
+        try:
+            if "/" in value:
+                ipaddress.ip_network(value, strict=False)
+            else:
+                ipaddress.ip_address(value)
+        except ValueError:
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.WARNING,
+                    code="W070",
+                    message=f"Invalid IP address or CIDR format: '{value}'",
+                    location=location,
+                    suggestion="Use valid IPv4 (192.0.2.0/24) or IPv6 (2001:db8::/32) format",
+                )
+            )
+
+    def _validate_date_format(self, value: Any, location: str) -> None:
+        """
+        Validate date format for date condition operators.
+
+        Error codes:
+            W071: Invalid date format
+        """
+        if isinstance(value, list):
+            for i, v in enumerate(value):
+                self._validate_date_format(v, f"{location}[{i}]")
+            return
+
+        if not isinstance(value, str):
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.WARNING,
+                    code="W071",
+                    message=f"Date value must be a string, got {type(value).__name__}",
+                    location=location,
+                    suggestion="Use ISO 8601 format like '2023-01-15T00:00:00Z'",
+                )
+            )
+            return
+
+        try:
+            parse_date(value)
+        except (ParserError, ValueError):
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.WARNING,
+                    code="W071",
+                    message=f"Invalid date format: '{value}'",
+                    location=location,
+                    suggestion="Use ISO 8601 format like '2023-01-15T00:00:00Z'",
+                )
+            )
+
+    def _validate_resources(self, resources: Any, location: str) -> None:
+        """
+        Validate Resource/NotResource ARN format.
+
+        Error codes:
+            W080: Invalid ARN format
+        """
+        if isinstance(resources, str):
+            resources = [resources]
+
+        if not isinstance(resources, list):
+            self.report.add(
+                LintResult(
+                    severity=LintSeverity.WARNING,
+                    code="W080",
+                    message="Resource must be a string or array of strings",
+                    location=location,
+                )
+            )
+            return
+
+        for i, resource in enumerate(resources):
+            res_location = f"{location}[{i}]" if len(resources) > 1 else location
+
+            if not isinstance(resource, str):
+                self.report.add(
+                    LintResult(
+                        severity=LintSeverity.WARNING,
+                        code="W080",
+                        message=f"Resource must be a string, got {type(resource).__name__}",
+                        location=res_location,
+                    )
+                )
+                continue
+
+            # "*" is always valid (matches all resources)
+            if resource == "*":
+                continue
+
+            # Wildcard patterns not starting with arn: are allowed
+            if not resource.startswith("arn:"):
+                if "*" not in resource and "?" not in resource:
+                    self.report.add(
+                        LintResult(
+                            severity=LintSeverity.WARNING,
+                            code="W080",
+                            message=f"Resource '{resource}' does not appear to be a valid ARN",
+                            location=res_location,
+                            suggestion="ARNs should follow format: arn:partition:service:region:account:resource",
+                        )
+                    )
+                continue
+
+            # Parse ARN components
+            parts = resource.split(":")
+            if len(parts) < 6:
+                self.report.add(
+                    LintResult(
+                        severity=LintSeverity.WARNING,
+                        code="W080",
+                        message=f"ARN has too few components: '{resource}'",
+                        location=res_location,
+                        suggestion="ARN format: arn:partition:service:region:account:resource",
+                    )
+                )
+                continue
+
+            # Validate partition (parts[1])
+            partition = parts[1]
+            valid_partitions = {"aws", "aws-cn", "aws-us-gov", "*"}
+            if partition not in valid_partitions and "*" not in partition and "?" not in partition:
+                self.report.add(
+                    LintResult(
+                        severity=LintSeverity.WARNING,
+                        code="W080",
+                        message=f"Unknown partition in ARN: '{partition}'",
+                        location=res_location,
+                        suggestion="Valid partitions: aws, aws-cn, aws-us-gov",
+                    )
+                )

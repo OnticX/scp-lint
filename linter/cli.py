@@ -8,13 +8,13 @@ import json
 import os
 import sys
 
-from .scp_linter import SCPLinter
+from linter.scp_linter import SCPLinter
 
 
 def lint_file(path):
-    """Lint a single file and return the report."""
+    """Lint a single file, returning the report or None/False for skip/error."""
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
     except Exception as e:
         print(f"\nFAILED: {path} (invalid JSON: {e})")
@@ -28,7 +28,7 @@ def lint_file(path):
 
 
 def print_report(report, file_path):
-    """Print a formatted lint report."""
+    """Print a lint report and return whether the policy is valid."""
     if report is None:
         return False
     if report is False:
